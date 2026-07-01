@@ -1,9 +1,7 @@
-Set-Content requirements.txt -Value @(
-  "pandas",
-  "numpy",
-  "scikit-learn",
-  "prophet",
-  "xgboost",
-  "streamlit",
-  "plotly"
-)
+﻿pandas
+numpy
+scikit-learn
+prophet
+xgboost
+streamlit
+plotly
