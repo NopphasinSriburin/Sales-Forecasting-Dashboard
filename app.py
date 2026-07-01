@@ -90,12 +90,24 @@ with st.sidebar:
         if up is not None:
             raw = pd.read_csv(up)
             cols = raw.columns.tolist()
+
+            # เดาคอลัมน์อัตโนมัติจากชื่อ (ลดโอกาสเลือกผิด)
+            def guess(cands, default_idx):
+                for i, c in enumerate(cols):
+                    if any(k in c.lower() for k in cands):
+                        return i
+                return default_idx
+            date_guess = guess(["date", "วันที่", "time", "day"], 0)
+            sales_guess = guess(["sales", "revenue", "amount", "ยอด", "sale"], min(1, len(cols) - 1))
+            cat_guess = guess(["category", "หมวด", "type", "product", "segment"], -1)
+
             st.markdown("**จับคู่คอลัมน์**")
-            date_col = st.selectbox("คอลัมน์วันที่", cols, index=0)
-            sales_col = st.selectbox("คอลัมน์ยอดขาย", cols,
-                                     index=min(1, len(cols) - 1))
+            st.caption("ระบบเดาให้อัตโนมัติ — ตรวจสอบว่าถูกต้องก่อนดำเนินการ")
+            date_col = st.selectbox("คอลัมน์วันที่", cols, index=date_guess)
+            sales_col = st.selectbox("คอลัมน์ยอดขาย", cols, index=sales_guess)
             cat_opts = ["(ไม่มี — รวมทั้งหมด)"] + cols
-            cat_pick = st.selectbox("คอลัมน์หมวดสินค้า (ถ้ามี)", cat_opts, index=0)
+            cat_default = 0 if cat_guess == -1 else cat_guess + 1
+            cat_pick = st.selectbox("คอลัมน์หมวดสินค้า (ถ้ามี)", cat_opts, index=cat_default)
             cat_col = None if cat_pick == cat_opts[0] else cat_pick
         else:
             st.info("อัปโหลดไฟล์ CSV เพื่อเริ่มพยากรณ์")
@@ -117,20 +129,68 @@ if raw is None:
     st.info("เลือกข้อมูลตัวอย่าง หรืออัปโหลด CSV จากแถบด้านซ้ายเพื่อเริ่มต้น")
     st.stop()
 
-# ---------- เตรียมข้อมูล ----------
-try:
-    raw[date_col] = pd.to_datetime(raw[date_col])
-    raw[sales_col] = pd.to_numeric(raw[sales_col], errors="coerce")
+# ---------- ตรวจสอบและแจ้งเตือน (validation) ----------
+def validate_and_prepare(raw, date_col, sales_col, cat_col):
+    """
+    ตรวจสอบการเลือกคอลัมน์ก่อนเทรน คืน (raw ที่เตรียมแล้ว, ข้อความ error หรือ None)
+    """
+    # 1. เลือกวันที่กับยอดขายเป็นคอลัมน์เดียวกัน
+    if date_col == sales_col:
+        return None, "คอลัมน์วันที่และยอดขายเป็นคอลัมน์เดียวกัน — กรุณาเลือกให้ต่างกัน"
+
+    # 2. คอลัมน์วันที่แปลงเป็นวันที่ได้ไหม
+    parsed_date = pd.to_datetime(raw[date_col], errors="coerce")
+    date_ok_ratio = parsed_date.notna().mean()
+    if date_ok_ratio < 0.5:
+        return None, (
+            f"คอลัมน์ '{date_col}' ที่เลือกเป็นคอลัมน์วันที่ แปลงเป็นวันที่ได้เพียง "
+            f"{date_ok_ratio*100:.0f}% — น่าจะเลือกคอลัมน์ผิด "
+            f"กรุณาเลือกคอลัมน์ที่เป็นวันที่จริง (เช่น 2025-01-01)"
+        )
+
+    # 3. คอลัมน์ยอดขายเป็นตัวเลขไหม
+    parsed_sales = pd.to_numeric(raw[sales_col], errors="coerce")
+    sales_ok_ratio = parsed_sales.notna().mean()
+    if sales_ok_ratio < 0.5:
+        return None, (
+            f"คอลัมน์ '{sales_col}' ที่เลือกเป็นคอลัมน์ยอดขาย เป็นตัวเลขเพียง "
+            f"{sales_ok_ratio*100:.0f}% — น่าจะเลือกคอลัมน์ผิด "
+            f"กรุณาเลือกคอลัมน์ที่เป็นตัวเลขยอดขาย (ไม่ใช่ข้อความ เช่น ชื่อหมวดสินค้า)"
+        )
+
+    # เตรียมข้อมูล
+    raw = raw.copy()
+    raw[date_col] = parsed_date
+    raw[sales_col] = parsed_sales
     raw = raw.dropna(subset=[date_col, sales_col])
-except Exception as e:
-    st.error(f"อ่านข้อมูลไม่สำเร็จ: ตรวจสอบว่าเลือกคอลัมน์วันที่และยอดขายถูกต้อง ({e})")
+
+    if len(raw) == 0:
+        return None, "หลังจากทำความสะอาดข้อมูลแล้วไม่เหลือข้อมูลเลย — กรุณาตรวจสอบไฟล์"
+
+    return raw, None
+
+
+raw, err = validate_and_prepare(raw, date_col, sales_col, cat_col)
+if err:
+    st.warning(err)
+    st.info(
+        "**วิธีจับคู่คอลัมน์ที่ถูกต้อง**\n"
+        "- คอลัมน์วันที่ → คอลัมน์ที่เป็นวันที่ เช่น `date`, `Order Date`\n"
+        "- คอลัมน์ยอดขาย → คอลัมน์ที่เป็นตัวเลข เช่น `sales`, `revenue`, `Sales`\n"
+        "- คอลัมน์หมวดสินค้า → เลือกได้ถ้ามี (เป็นข้อความ เช่น `category`)"
+    )
     st.stop()
 
 # เลือกหมวด (ถ้ามี)
 if cat_col:
     categories = sorted(raw[cat_col].dropna().unique().tolist())
-    sel_cat = st.selectbox("เลือกหมวดสินค้า", categories)
-    sub = raw[raw[cat_col] == sel_cat]
+    if len(categories) == 0:
+        st.warning(f"คอลัมน์หมวด '{cat_col}' ไม่มีข้อมูล — จะรวมทั้งหมดแทน")
+        sel_cat = "ทั้งหมด"
+        sub = raw
+    else:
+        sel_cat = st.selectbox("เลือกหมวดสินค้า", categories)
+        sub = raw[raw[cat_col] == sel_cat]
 else:
     sel_cat = "ทั้งหมด"
     sub = raw
@@ -140,16 +200,38 @@ d = (sub.groupby(date_col)[sales_col].sum().reset_index())
 d.columns = ["ds", "y"]
 d = d.sort_values("ds").reset_index(drop=True)
 
-if len(d) < 60:
-    st.warning(f"ข้อมูลมีเพียง {len(d)} วัน — แนะนำอย่างน้อย 60 วันเพื่อผลที่น่าเชื่อถือ")
+# แจ้งเตือนระดับข้อมูล
+if len(d) < 30:
+    st.warning(
+        f"ข้อมูลของหมวด '{sel_cat}' มีเพียง {len(d)} วัน — น้อยเกินไปสำหรับพยากรณ์ "
+        f"(ต้องมีอย่างน้อย 30 วัน) ลองเลือกหมวดอื่น หรือใช้ข้อมูลที่ครอบคลุมช่วงเวลานานขึ้น"
+    )
+    st.stop()
+elif len(d) < 60:
+    st.warning(f"ข้อมูลมี {len(d)} วัน — พยากรณ์ได้ แต่แนะนำอย่างน้อย 60 วันเพื่อผลที่น่าเชื่อถือขึ้น")
+else:
+    st.success(f"ข้อมูลพร้อม: {len(d)} วัน ({d.ds.min().date()} ถึง {d.ds.max().date()})")
 
 holidays = build_holidays(sub, date_col)
 
 # ---------- รันโมเดล ----------
-with st.spinner("กำลังเทรนโมเดลและพยากรณ์..."):
-    results, last_actual, split_date = run_forecast(
-        d, model_choice, future_days=future_days, holidays=holidays
+try:
+    with st.spinner("กำลังเทรนโมเดลและพยากรณ์..."):
+        results, last_actual, split_date = run_forecast(
+            d, model_choice, future_days=future_days, holidays=holidays
+        )
+except ValueError as e:
+    st.warning(f"ไม่สามารถพยากรณ์ได้: {e}")
+    st.info(
+        "แนะนำให้ตรวจสอบว่า:\n"
+        "- เลือกคอลัมน์วันที่และยอดขายถูกต้อง (คอลัมน์วันที่ต้องเป็นรูปแบบวันที่ เช่น 2025-01-01)\n"
+        "- ข้อมูลมีอย่างน้อย 30 วัน\n"
+        "- ถ้าเลือกหมวดสินค้า ลองเลือกหมวดที่มีข้อมูลมากขึ้น"
     )
+    st.stop()
+except Exception as e:
+    st.error(f"เกิดข้อผิดพลาดระหว่างเทรนโมเดล: {e}")
+    st.stop()
 
 # เลือกโมเดลที่ดีที่สุด (MAPE ต่ำสุด) เป็นตัวหลักที่โชว์
 def _mape_key(k):
