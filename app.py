@@ -60,6 +60,20 @@ def build_holidays(df_raw, date_col):
     return pd.concat(frames, ignore_index=True) if frames else None
 
 
+@st.cache_data(show_spinner=False)
+def cached_forecast(d_csv, model_choice, future_days, holidays_csv):
+    """
+    Cache การเทรน — ถ้า input เดิม (ข้อมูล+โมเดล+วัน+holiday) ดึงจาก cache แทนเทรนใหม่
+    รับ input เป็น CSV string เพื่อให้ hashable
+    """
+    from io import StringIO
+    d = pd.read_csv(StringIO(d_csv), parse_dates=["ds"])
+    holidays = None
+    if holidays_csv:
+        holidays = pd.read_csv(StringIO(holidays_csv), parse_dates=["ds"])
+    return run_forecast(d, model_choice, future_days=future_days, holidays=holidays)
+
+
 # ---------- Header ----------
 st.markdown(
     f'<div class="app-title">{icon("trending-up", 26, "#4F46E5")}Sales Forecasting Studio</div>'
@@ -215,10 +229,13 @@ else:
 holidays = build_holidays(sub, date_col)
 
 # ---------- รันโมเดล ----------
+MAX_HORIZON = 180  # เทรนที่ค่าคงที่เสมอ -> เลื่อน slider ไม่ต้องเทรนใหม่ (cache hit)
 try:
     with st.spinner("กำลังเทรนโมเดลและพยากรณ์..."):
-        results, last_actual, split_date = run_forecast(
-            d, model_choice, future_days=future_days, holidays=holidays
+        d_csv = d.to_csv(index=False)
+        holidays_csv = holidays.to_csv(index=False) if holidays is not None else None
+        results, last_actual, split_date = cached_forecast(
+            d_csv, model_choice, MAX_HORIZON, holidays_csv
         )
 except ValueError as e:
     st.warning(f"ไม่สามารถพยากรณ์ได้: {e}")
