@@ -1,7 +1,9 @@
-pandas
-numpy
-scikit-learn
-prophet
-xgboost
-streamlit
-plotly
+Set-Content requirements.txt -Value @(
+  "pandas",
+  "numpy",
+  "scikit-learn",
+  "prophet",
+  "xgboost",
+  "streamlit",
+  "plotly"
+)
