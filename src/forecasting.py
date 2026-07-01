@@ -141,7 +141,12 @@ def run_forecast(d, model_choice, split_ratio=0.85, future_days=90, holidays=Non
     return: dict {model_name: {"forecast": df, "metrics": dict}}, last_actual_date, split_date
     """
     d = d.sort_values("ds").reset_index(drop=True)
+    if len(d) < 30:
+        raise ValueError(
+            f"ข้อมูลน้อยเกินไป ({len(d)} วัน) — ต้องมีอย่างน้อย 30 วันเพื่อพยากรณ์"
+        )
     split_idx = int(len(d) * split_ratio)
+    split_idx = min(max(split_idx, 1), len(d) - 1)   # กันเกินขอบเขต
     split_date = d.ds.iloc[split_idx]
     last_actual = d.ds.max()
 
