@@ -2,6 +2,8 @@
 
 เครื่องมือพยากรณ์ยอดขายแบบ interactive ด้วย Streamlit — อัปโหลดข้อมูลของตัวเอง เทรนโมเดล และเปรียบเทียบความแม่นยำได้ในหน้าเดียว รองรับทั้ง Prophet และ XGBoost
 
+Link : https://sales-forecasting-dashboard-l2fbcibjbqnaegybzdgmex.streamlit.app/
+
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.x-red)
 ![License](https://img.shields.io/badge/License-MIT-green)
