@@ -152,7 +152,11 @@ with st.spinner("กำลังเทรนโมเดลและพยาก
     )
 
 # เลือกโมเดลที่ดีที่สุด (MAPE ต่ำสุด) เป็นตัวหลักที่โชว์
-best_name = min(results, key=lambda k: results[k]["metrics"]["MAPE"])
+def _mape_key(k):
+    v = results[k]["metrics"]["MAPE"]
+    return float("inf") if pd.isna(v) else v
+
+best_name = min(results, key=_mape_key)
 best = results[best_name]
 fc = best["forecast"].sort_values("ds")
 future = fc[fc.ds > last_actual].head(future_days)
@@ -163,17 +167,22 @@ m = best["metrics"]
 next_30 = future.head(30).yhat.sum()
 lo_30 = future.head(30).yhat_lower.sum()
 hi_30 = future.head(30).yhat_upper.sum()
-mape_ok = m["MAPE"] < 15
+mape_val = m["MAPE"]
+has_mape = not pd.isna(mape_val)
+mape_ok = has_mape and mape_val < 15
+mape_str = f"{mape_val:.1f}%" if has_mape else "N/A"
 
 c1, c2, c3, c4 = st.columns(4)
 kpi(c1, "ยอดคาดการณ์ 30 วัน", f"฿{next_30:,.0f}", "trending-up",
     f"ช่วง ฿{lo_30:,.0f} – ฿{hi_30:,.0f}")
 kpi(c2, "โมเดลที่แม่นสุด", best_name, "activity",
-    f"MAPE {m['MAPE']:.1f}%")
-kpi(c3, "ความแม่นยำ", f"{m['MAPE']:.1f}%", "check-circle" if mape_ok else "alert-triangle",
-    "ผ่านเกณฑ์ธุรกิจ (<15%)" if mape_ok else "เกินเกณฑ์ 15%",
+    f"MAPE {mape_str}")
+kpi(c3, "ความแม่นยำ", mape_str, "check-circle" if mape_ok else "alert-triangle",
+    "ผ่านเกณฑ์ธุรกิจ (<15%)" if mape_ok else ("ข้อมูลทดสอบไม่พอ" if not has_mape else "เกินเกณฑ์ 15%"),
     "good" if mape_ok else "warn")
-kpi(c4, "RMSE", f"฿{m['RMSE']:,.0f}", "bar-chart", f"MAE ฿{m['MAE']:,.0f}")
+rmse_str = f"฿{m['RMSE']:,.0f}" if not pd.isna(m["RMSE"]) else "N/A"
+mae_str = f"MAE ฿{m['MAE']:,.0f}" if not pd.isna(m["MAE"]) else ""
+kpi(c4, "RMSE", rmse_str, "bar-chart", mae_str)
 
 st.write("")
 

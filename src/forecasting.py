@@ -17,7 +17,24 @@ logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
 def mape(y, yhat):
     y, yhat = np.asarray(y, float), np.asarray(yhat, float)
     mask = y != 0
+    if mask.sum() == 0:
+        return float("nan")
     return np.mean(np.abs((y[mask] - yhat[mask]) / y[mask])) * 100
+
+
+def safe_metrics(model_name, y_true, y_pred):
+    """คำนวณ metrics แบบกัน test set ว่าง (คืน nan แทน crash)"""
+    y_true = np.asarray(y_true, float)
+    y_pred = np.asarray(y_pred, float)
+    if len(y_true) == 0:
+        return {"model": model_name, "MAPE": float("nan"),
+                "RMSE": float("nan"), "MAE": float("nan")}
+    return {
+        "model": model_name,
+        "MAPE": round(mape(y_true, y_pred), 2),
+        "RMSE": round(np.sqrt(mean_squared_error(y_true, y_pred)), 0),
+        "MAE": round(mean_absolute_error(y_true, y_pred), 0),
+    }
 
 
 def make_features(df):
@@ -63,12 +80,7 @@ def train_prophet(d, split_date, future_days, holidays=None):
     fcst = m.predict(future)
 
     merged = test.merge(fcst[["ds", "yhat"]], on="ds", how="left").dropna()
-    metrics = {
-        "model": "Prophet",
-        "MAPE": round(mape(merged.y, merged.yhat), 2),
-        "RMSE": round(np.sqrt(mean_squared_error(merged.y, merged.yhat)), 0),
-        "MAE": round(mean_absolute_error(merged.y, merged.yhat), 0),
-    }
+    metrics = safe_metrics("Prophet", merged.y, merged.yhat)
     out = fcst[["ds", "yhat", "yhat_lower", "yhat_upper"]].copy()
     return out, metrics
 
@@ -88,16 +100,18 @@ def train_xgboost(d, split_date, future_days):
         n_estimators=300, max_depth=5, learning_rate=0.05,
         subsample=0.8, colsample_bytree=0.8, random_state=42,
     )
+    if len(train) == 0:
+        raise ValueError("ข้อมูลไม่พอสำหรับสร้าง features ของ XGBoost (ต้องมีข้อมูลมากขึ้น)")
     model.fit(train[FEATURE_COLS], train.y)
 
-    # วัดผลบน test
-    test_pred = model.predict(test[FEATURE_COLS])
-    metrics = {
-        "model": "XGBoost",
-        "MAPE": round(mape(test.y, test_pred), 2),
-        "RMSE": round(np.sqrt(mean_squared_error(test.y, test_pred)), 0),
-        "MAE": round(mean_absolute_error(test.y, test_pred), 0),
-    }
+    # วัดผลบน test (กัน test ว่าง)
+    if len(test) > 0:
+        test_pred = model.predict(test[FEATURE_COLS])
+        metrics = safe_metrics("XGBoost", test.y, test_pred)
+        resid_std = np.std(test.y.values - test_pred)
+    else:
+        metrics = safe_metrics("XGBoost", [], [])
+        resid_std = np.std(train.y.values - model.predict(train[FEATURE_COLS]))
 
     # ทำนายอนาคตแบบ recursive
     hist = d.sort_values("ds")[["ds", "y"]].copy()
@@ -115,8 +129,7 @@ def train_xgboost(d, split_date, future_days):
     fitted = feat[["ds"]].copy()
     fitted["yhat"] = model.predict(feat[FEATURE_COLS])
     fut_df = pd.DataFrame(future_rows)
-    # XGBoost ไม่มี CI ตรงๆ -> ใช้ residual std ประมาณช่วง
-    resid_std = np.std(test.y.values - test_pred)
+    # XGBoost ไม่มี CI ตรงๆ -> ใช้ residual std ประมาณช่วง (คำนวณไว้ด้านบนแล้ว)
     fut_df["yhat_lower"] = fut_df.yhat - 1.96 * resid_std
     fut_df["yhat_upper"] = fut_df.yhat + 1.96 * resid_std
     fitted["yhat_lower"] = fitted.yhat - 1.96 * resid_std
