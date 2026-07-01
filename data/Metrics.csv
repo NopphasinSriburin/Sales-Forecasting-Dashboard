@@ -1,0 +1,4 @@
+category,MAPE(%),RMSE,MAE
+Electronics,8.84,1225.0,951.0
+Clothing,7.66,590.0,453.0
+Groceries,7.7,1260.0,987.0
