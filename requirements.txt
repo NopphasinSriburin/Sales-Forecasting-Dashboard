@@ -1,3 +1,4 @@
+@"
 pandas
 numpy
 scikit-learn
@@ -5,3 +6,8 @@ prophet
 xgboost
 streamlit
 plotly
+"@ | Out-File -Encoding utf8 requirements.txt
+
+git add requirements.txt
+git commit -m "add requirements.txt"
+git push
